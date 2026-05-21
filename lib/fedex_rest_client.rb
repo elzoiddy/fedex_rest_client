@@ -1,5 +1,9 @@
 # frozen_string_literal: true
 
+require "httparty"
+require "logger"
+require "json"
+
 require_relative "fedex_rest_client/version"
 
 require_relative "fedex_rest_client/credential"

@@ -1,4 +1,4 @@
-require "httparty"
+
 
 module FedexRestClient
   class Client
@@ -19,7 +19,7 @@ module FedexRestClient
     #   max_retrues: -  number of retries client will attempt to make when errors occurs.
     #
     def initialize(options)
-      @logger = options[:logger] || Logger.new(STDOUT)
+      @logger = options[:logger] || ::Logger.new(STDOUT)
       # get any tokens passed in directly
       @credential = options[:credential]
 
