@@ -19,12 +19,12 @@ gem "fedex_rest_client", git: "<this repo>", branch: 'main'
 ## Usage
 
 ### Credentials
-You will need Fedex developer account. Create account, create project
+You will need Fedex developer account. Create account, then create project and pick the right set of APIs to include in your project.
 
-Get these 3 piece of credentials:
-1. API Key
-2. API Secret Key
-3. account number
+Get these 3 piece of information:
+  1. API Key
+  2. API Secret Key
+  3. account number
 
 This gem will use the API key and API secret to obtain a temporary oauth Bearer token.  This token
 is then used to communicate with the fedex RESTful endpoints.  When token is near expiration or already expired, 
@@ -35,15 +35,15 @@ You will be given new set of credential triplet for production environment.
 
 ### New Label 
 
-__create a credential object__
+__Create a credential object__
 
 ```
-credential = FedexRestClient::Credential.new("<YOUR API KEY>", "<YOUR API SECRET>, "<YOUR ACCOUNT NUMBER>")
+credential = FedexRestClient::Credential.new("<YOUR API KEY>", "<YOUR API SECRET>", "<YOUR ACCOUNT NUMBER>")
 
 client = FedexRestClient::Client.new({ credential: credential})
 ```
 
-  __address to and from must be a hash that has these fields__
+__Address to and from must be a hash that has these fields__
 
 ```
 address = {
@@ -55,7 +55,7 @@ address = {
   country_iso: "US"
 }
 ```
-__create label__
+__Create Label__
 ```
 result = client.fedex_shipping_label({
     from_name: "Test Sender",
@@ -75,11 +75,12 @@ result = client.fedex_shipping_label({
     residential_recipient: true
 })
 
-#yields
+==> yields
 
 result = {
-  tracking_number: "794819804478",
-  image64: "iVBORw....."
+  tracking_number: "794819804478", # tracking number
+  image64: "iVBORw.....", # label data Base 64 encoded
+  transaction_id: "...."  # unique transaction id for each request. 
 }
 ```
 __parameters for label creation__

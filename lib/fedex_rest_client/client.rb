@@ -5,7 +5,7 @@ module FedexRestClient
     include HTTParty
 
     attr_accessor :credential, :max_retries
-    attr_reader :create_shipment_endpoint, :track_status_endpoint, :fedex_restapi_url
+    attr_reader :create_shipment_endpoint, :locations_endpoint, :track_status_endpoint, :fedex_restapi_url
     attr_reader :retries
     attr_accessor :logger
 
@@ -24,6 +24,7 @@ module FedexRestClient
       @credential = options[:credential]
 
       @create_shipment_endpoint = 'ship/v1/shipments'
+      @locations_endpoint = 'location/v1/locations'
       @track_status_endpoint = 'track/v1/trackingnumbers'
       # default to development sandbox
       @fedex_restapi_url = options[:fedex_restapi_url] || 'https://apis-sandbox.fedex.com'
@@ -89,14 +90,9 @@ module FedexRestClient
     end
 
     def fedex_shipping_label(args)
-      if need_token_refresh?
-        if !refresh_token!
-          # failed to refresh token
-          raise RefreshTokenError.new("Unable to refresh token")
-        end
-      end
+      check_and_refresh_token
 
-      label_request = create_label(args)
+      label_request = create_label_request(args)
       result = fedex_post(create_shipment_endpoint, header_with_bearer_token, label_request)
 
       shipment_response = result.dig("output", "transactionShipments").first["pieceResponses"]
@@ -110,10 +106,69 @@ module FedexRestClient
       logger.error(exp)
     end
 
+    def fedex_locations(args)
+      check_and_refresh_token
+
+      locations_request = create_locations_request(args)
+      result = fedex_post(locations_endpoint, header_with_bearer_token, locations_request)
+
+    end
+
     private
 
+    def check_and_refresh_token
+      if need_token_refresh?
+        if !refresh_token!
+          # failed to refresh token
+          raise RefreshTokenError.new("Unable to refresh token")
+        end
+      end
+    end
+
+    # query args for location query
+
+    def create_locations_request(args)
+      max_result            = args[:max_result] || 10
+      result_distance_unit  = args[:result_distance_unit] || "MI" # or KM
+      result_distance_value = args[:result_distance_value] || 25
+      postal_code           = args[:zipcode]
+      country_iso           = args[:country_iso] || "US"
+      city                  = args[:city]
+      location_types        = args[:location_types].nil? ? ["FEDEX_AUTHORIZED_SHIP_CENTER"] : args[:location_types]
+
+      locations_request = {
+        locationsSummaryRequestControlParameters: {
+          distance: {
+            units: result_distance_unit,
+            value: result_distance_value
+          },
+          maxResults: max_result
+        },
+        locationSearchCriterion: "ADDRESS",
+        location: {
+          address: {
+            city: city,
+            postalCode: postal_code,
+            countryCode: country_iso,
+            residential: false
+          }
+        },
+        multipleMatchesAction: "RETURN_ALL",
+        sort: {
+          criteria: "DISTANCE",
+          order: "ASCENDING"
+        },
+        sameState: false,
+        sameCountry: true,
+        locationTypes: location_types,
+        includeHoliday: true
+      }
+
+      locations_request
+    end
+
     # convert structure to fedex name and fields
-    def create_label(args)
+    def create_label_request(args)
       # sender details
       from_name                  = args[:from_name]
       from_address               = args[:from_address]
