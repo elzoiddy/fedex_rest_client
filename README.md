@@ -12,7 +12,7 @@ Probably better if you point at this repo or fork of this repo for your specific
 
 ```bash
 
-gem "fedex_rest_client", git: "<this repo>", :branch => 'main'
+gem "fedex_rest_client", git: "<this repo>", branch: 'main'
 
 ```
 
@@ -21,27 +21,29 @@ gem "fedex_rest_client", git: "<this repo>", :branch => 'main'
 ### Credentials
 You will need Fedex developer account. Create account, create project
 
-Get these 3 piece of credentials
-  a. API Key
-  b. API Secret Key
-  c. account number. 
+Get these 3 piece of credentials:
+1. API Key
+2. API Secret Key
+3. account number
 
 This gem will use the API key and API secret to obtain a temporary oauth Bearer token.  This token
 is then used to communicate with the fedex RESTful endpoints.  When token is near expiration or already expired, 
 client will auto refresh it before new any requsts. 
 
-Once you are ready to got o production, you need to switch your fedex project to prouction, and be given new credential
-triplet.  Use those in production environment. 
+Once you are ready to go to production, you need to switch your fedex project to production mode.
+You will be given new set of credential triplet for production environment. 
 
 ### New Label 
 
 __create a credential object__
 
+```
 credential = FedexRestClient::Credential.new("<YOUR API KEY>", "<YOUR API SECRET>, "<YOUR ACCOUNT NUMBER>")
 
 client = FedexRestClient::Client.new({ credential: credential})
+```
 
-__address to and from must be a hash that has these fields__
+  __address to and from must be a hash that has these fields__
 
 ```
 address = {
@@ -73,7 +75,7 @@ result = client.fedex_shipping_label({
     residential_recipient: true
 })
 
-yields
+#yields
 
 result = {
   tracking_number: "794819804478",
@@ -82,7 +84,7 @@ result = {
 ```
 __parameters for label creation__
 
-Some of the enum types are well defined in https://developer.fedex.com/wirc/browser/. No need to list all options here. 
+The enum types are well defined in https://developer.fedex.com/wirc/browser/. No need to list all options here. 
 
 
 | name | type |description |

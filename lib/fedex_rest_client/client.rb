@@ -100,10 +100,12 @@ module FedexRestClient
       result = fedex_post(create_shipment_endpoint, header_with_bearer_token, label_request)
 
       shipment_response = result.dig("output", "transactionShipments").first["pieceResponses"]
+      transaction_id = result.dig("transactionId")
       label = shipment_response.first["packageDocuments"].first
       tracking_number = shipment_response.first["trackingNumber"]
 
-      {tracking_number: tracking_number, image64: label['encodedLabel']}
+      # transaction id for debugging later.
+      {tracking_number: tracking_number, image64: label['encodedLabel'], transaction_id: transaction_id}
     rescue => exp
       logger.error(exp)
     end

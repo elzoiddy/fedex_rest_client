@@ -335,7 +335,7 @@ RSpec.describe FedexRestClient::Client do
 
       result = client.fedex_shipping_label(args)
 
-      expect(result).to eq ({image64: "BASE64 ENCODED LABEL HERE", tracking_number: "11122233444555"})
+      expect(result).to eq ({image64: "BASE64 ENCODED LABEL HERE", tracking_number: "11122233444555", transaction_id: "UUID-1234-5678"})
 
 
     end
