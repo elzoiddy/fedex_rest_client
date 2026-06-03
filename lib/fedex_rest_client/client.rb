@@ -5,7 +5,7 @@ module FedexRestClient
     include HTTParty
 
     attr_accessor :credential, :max_retries
-    attr_reader :create_shipment_endpoint, :locations_endpoint, :track_status_endpoint, :fedex_restapi_url
+    attr_reader :create_shipment_endpoint, :locations_endpoint, :track_status_endpoint, :address_valication_endpoint, :fedex_restapi_url
     attr_reader :retries
     attr_accessor :logger
 
@@ -23,9 +23,10 @@ module FedexRestClient
       # get any tokens passed in directly
       @credential = options[:credential]
 
-      @create_shipment_endpoint = 'ship/v1/shipments'
-      @locations_endpoint = 'location/v1/locations'
-      @track_status_endpoint = 'track/v1/trackingnumbers'
+      @create_shipment_endpoint    = 'ship/v1/shipments'
+      @locations_endpoint          = 'location/v1/locations'
+      @address_valication_endpoint = "address/v1/addresses/resolve"
+      @track_status_endpoint       = 'track/v1/trackingnumbers'
       # default to development sandbox
       @fedex_restapi_url = options[:fedex_restapi_url] || 'https://apis-sandbox.fedex.com'
 
@@ -74,9 +75,51 @@ module FedexRestClient
       {error_message: exp.message}
     end
 
-    def address_resolution(address)
-      # not yet implemented
-      true
+    # {"transactionId" => "....",
+    #  "output" =>
+    #   {"alerts" => [{"code" => "VIRTUAL.RESPONSE", "message" => "This is a Virtual Response.", "alertType" => "NOTE"}],
+    #    "resolvedAddresses" =>
+    #     [{"streetLinesToken" => ["4702 Great America Pkwy"],
+    #       "cityToken" => [{"changed" => false, "value" => "Santa Clara"}],
+    #       "stateOrProvinceCode" => "CA",
+    #       "stateOrProvinceCodeToken" => {"changed" => false, "value" => "CA"},
+    #       "postalCodeToken" => {"changed" => true, "value" => "95005"},
+    #       "parsedPostalCode" => {"base" => "95005", "addOn" => "3754", "deliveryPoint" => "99"},
+    #       "countryCode" => "US",
+
+
+    def address_resolution(args)
+      check_and_refresh_token
+
+      address_validation_request = create_address_validation_request(args)
+      response = fedex_post(address_valication_endpoint, header_with_bearer_token, address_validation_request)
+
+      output = {transaction_id: response['transactionId'], response: response}
+
+      resolved_addresses = response.dig("output", "resolvedAddresses")
+
+      # TODO parse output for changed address
+      # changed = false
+      #
+      # resolved_addresses.each do |ra|
+      #   changed = ra['stateOrProvinceCodeToken']['changed'] || ra['postalCodeToken']['changed']
+      #
+      #   new_address = {
+      #     address1: ra['streetLinesToken'][0],
+      #     address2: ra['streetLinesToken'][1].nil? ? nil : ra['streetLinesToken'][1],
+      #     city: ra['cityToken'][0]['value'],
+      #     state_abbr: ra['stateOrProvinceCode'],
+      #     zipcode: ra['parsedPostalCode']['base'] + '-' + ra['parsedPostalCode']['addOn'],
+      #     country_iso: ra['countryCode']
+      #   }
+      #
+      #   output[:changed] = changed
+      #   output[:address] = new_address
+      # end
+
+
+      output
+
     end
 
     ##
@@ -112,6 +155,7 @@ module FedexRestClient
       locations_request = create_locations_request(args)
       result = fedex_post(locations_endpoint, header_with_bearer_token, locations_request)
 
+      result
     end
 
     private
@@ -125,6 +169,42 @@ module FedexRestClient
       end
     end
 
+    # query args for address validation query
+
+    def create_address_validation_request(args)
+
+      address1    = args[:address1]
+      address2    = args[:address2]
+      city        = args[:city]
+      state_abbr  = args[:state_abbr]
+      zipcode     = args[:zipcode]
+      country_iso = args[:country_iso] || "US"
+
+
+      validation_request = {
+        validateAddressControlParameters: {
+          includeResolutionTokens: true
+        },
+        addressesToValidate: [
+          {
+            address: {
+              streetLines: [
+                address1,
+                address2,
+              ],
+              city: city,
+              stateOrProvinceCode: state_abbr,
+              postalCode: zipcode,
+              countryCode: country_iso
+            }
+          }
+        ]
+      }
+
+      validation_request
+    end
+
+
     # query args for location query
 
     def create_locations_request(args)
@@ -134,6 +214,7 @@ module FedexRestClient
       postal_code           = args[:zipcode]
       country_iso           = args[:country_iso] || "US"
       city                  = args[:city]
+      state_abbr            = args[:state_abbr]
       location_types        = args[:location_types].nil? ? ["FEDEX_AUTHORIZED_SHIP_CENTER"] : args[:location_types]
 
       locations_request = {
@@ -148,6 +229,7 @@ module FedexRestClient
         location: {
           address: {
             city: city,
+            stateOrProvinceCode: state_abbr,
             postalCode: postal_code,
             countryCode: country_iso,
             residential: false
