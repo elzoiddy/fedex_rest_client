@@ -96,9 +96,8 @@ module FedexRestClient
 
       output = {transaction_id: response['transactionId'], response: response}
 
-      resolved_addresses = response.dig("output", "resolvedAddresses")
-
       # TODO parse output for changed address
+      # resolved_addresses = response.dig("output", "resolvedAddresses")
       # changed = false
       #
       # resolved_addresses.each do |ra|
@@ -215,6 +214,9 @@ module FedexRestClient
       country_iso           = args[:country_iso] || "US"
       city                  = args[:city]
       state_abbr            = args[:state_abbr]
+      latitude              = args[:latitude]
+      longitude             = args[:longitude]
+
       location_types        = args[:location_types].nil? ? ["FEDEX_AUTHORIZED_SHIP_CENTER"] : args[:location_types]
 
       locations_request = {
@@ -245,6 +247,15 @@ module FedexRestClient
         locationTypes: location_types,
         includeHoliday: true
       }
+
+      # add lat and long to request
+      if !latitude.nil? && !longitude.nil?
+        locations_request[:location][:longLat] = {
+          latitude: latitude,
+          longitude: longitude
+        }
+      }
+
 
       locations_request
     end
