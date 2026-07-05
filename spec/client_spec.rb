@@ -105,7 +105,7 @@ RSpec.describe FedexRestClient::Client do
       }
 
 
-      result = client.send(:create_label, args)
+      result = client.send(:create_label_request, args)
 
       expected = {
         mergeLabelDocOption: "LABELS_ONLY",
@@ -182,7 +182,7 @@ RSpec.describe FedexRestClient::Client do
       }
 
 
-      result = client.send(:create_label, args)
+      result = client.send(:create_label_request, args)
 
       expected = {
         mergeLabelDocOption: "LABELS_ONLY",
@@ -241,7 +241,6 @@ RSpec.describe FedexRestClient::Client do
           returnShipmentDetail: { returnType: "PRINT_RETURN_LABEL"}}},
           accountNumber: {value: "123456"}
       }
-      puts result
       expect(result).to eq expected
 
     end
@@ -281,7 +280,7 @@ RSpec.describe FedexRestClient::Client do
       double(:resp, code: 200, body: refresh_token_good_response_json)
     end
 
-    let :good_request_response do
+    let :good_label_request_response do
       double(:resp, code: 200, body: '{
         "transactionId": "UUID-1234-5678",
         "output":{
@@ -326,7 +325,7 @@ RSpec.describe FedexRestClient::Client do
       allow(FedexRestClient::Client).to receive(:post).and_return(
         token_expire_response, # live token expiration
         token_refresh_response, # refresh successful
-        good_request_response ) # got new label
+        good_label_request_response ) # got new label
 
       # looks like to be a good token, but it expires during request from fedex side
       credential = client.credential
@@ -343,5 +342,164 @@ RSpec.describe FedexRestClient::Client do
 
   end
 
+  describe "handling exceptions" do
+
+    before do
+      # token is valid no need to reauth
+      credential.token_expire_at = Time.now.to_i + 3600
+      credential.oauth_token = "token"
+    end
+
+    it "should handle 429 rate limit error" do
+      stub_request(:post, "https://apis-sandbox.fedex.com/location/v1/locations").
+        with(
+          body: "{\"locationsSummaryRequestControlParameters\":{\"distance\":{\"units\":\"MI\",\"value\":25},\"maxResults\":5},\"locationSearchCriterion\":\"ADDRESS\",\"location\":{\"address\":{\"city\":null,\"stateOrProvinceCode\":null,\"postalCode\":\"90210\",\"countryCode\":\"US\",\"residential\":false}},\"multipleMatchesAction\":\"RETURN_ALL\",\"sort\":{\"criteria\":\"DISTANCE\",\"order\":\"ASCENDING\"},\"sameState\":false,\"sameCountry\":true,\"locationTypes\":[\"FEDEX_AUTHORIZED_SHIP_CENTER\"],\"includeHoliday\":true}",
+          headers: {
+            'Accept'=>'application/json',
+            'Accept-Encoding'=>'gzip;q=1.0,deflate;q=0.6,identity;q=0.3',
+            'Authorization'=>'Bearer token',
+            'Content-Type'=>'application/json',
+            'User-Agent'=>'Ruby'
+          }).
+        to_return(status: 429, body: "{}", headers: {"Retry-After" => 3600})
+
+
+      expect{client.fedex_locations({zipcode: "90210",max_result: 5})}.to raise_error(
+        FedexRestClient::RateLimitError, "Rate limit error. Retry after 3600")
+
+    end
+
+    it "should handle 404 403 and 400 errors" do
+      stub_request(:post, "https://apis-sandbox.fedex.com/location/v1/locations").
+        with(
+          body: "{\"locationsSummaryRequestControlParameters\":{\"distance\":{\"units\":\"MI\",\"value\":25},\"maxResults\":5},\"locationSearchCriterion\":\"ADDRESS\",\"location\":{\"address\":{\"city\":null,\"stateOrProvinceCode\":null,\"postalCode\":\"90210\",\"countryCode\":\"US\",\"residential\":false}},\"multipleMatchesAction\":\"RETURN_ALL\",\"sort\":{\"criteria\":\"DISTANCE\",\"order\":\"ASCENDING\"},\"sameState\":false,\"sameCountry\":true,\"locationTypes\":[\"FEDEX_AUTHORIZED_SHIP_CENTER\"],\"includeHoliday\":true}",
+          headers: {
+            'Accept'=>'application/json',
+            'Accept-Encoding'=>'gzip;q=1.0,deflate;q=0.6,identity;q=0.3',
+            'Authorization'=>'Bearer token',
+            'Content-Type'=>'application/json',
+            'User-Agent'=>'Ruby'
+          }).
+        to_return(status: 400, body: "{}", headers: {})
+
+
+      expect{client.fedex_locations({zipcode: "90210",max_result: 5})}.to raise_error(
+        FedexRestClient::ApiError, "Fedex API Bad Request")
+
+      stub_request(:post, "https://apis-sandbox.fedex.com/location/v1/locations").
+        with(
+          body: "{\"locationsSummaryRequestControlParameters\":{\"distance\":{\"units\":\"MI\",\"value\":25},\"maxResults\":5},\"locationSearchCriterion\":\"ADDRESS\",\"location\":{\"address\":{\"city\":null,\"stateOrProvinceCode\":null,\"postalCode\":\"90210\",\"countryCode\":\"US\",\"residential\":false}},\"multipleMatchesAction\":\"RETURN_ALL\",\"sort\":{\"criteria\":\"DISTANCE\",\"order\":\"ASCENDING\"},\"sameState\":false,\"sameCountry\":true,\"locationTypes\":[\"FEDEX_AUTHORIZED_SHIP_CENTER\"],\"includeHoliday\":true}",
+          headers: {
+            'Accept'=>'application/json',
+            'Accept-Encoding'=>'gzip;q=1.0,deflate;q=0.6,identity;q=0.3',
+            'Authorization'=>'Bearer token',
+            'Content-Type'=>'application/json',
+            'User-Agent'=>'Ruby'
+          }).
+        to_return(status: 403, body: "{}", headers: {})
+
+
+      expect{client.fedex_locations({zipcode: "90210",max_result: 5})}.to raise_error(
+        FedexRestClient::ApiError, "Fedex API Forbidden")
+
+      stub_request(:post, "https://apis-sandbox.fedex.com/location/v1/locations").
+        with(
+          body: "{\"locationsSummaryRequestControlParameters\":{\"distance\":{\"units\":\"MI\",\"value\":25},\"maxResults\":5},\"locationSearchCriterion\":\"ADDRESS\",\"location\":{\"address\":{\"city\":null,\"stateOrProvinceCode\":null,\"postalCode\":\"90210\",\"countryCode\":\"US\",\"residential\":false}},\"multipleMatchesAction\":\"RETURN_ALL\",\"sort\":{\"criteria\":\"DISTANCE\",\"order\":\"ASCENDING\"},\"sameState\":false,\"sameCountry\":true,\"locationTypes\":[\"FEDEX_AUTHORIZED_SHIP_CENTER\"],\"includeHoliday\":true}",
+          headers: {
+            'Accept'=>'application/json',
+            'Accept-Encoding'=>'gzip;q=1.0,deflate;q=0.6,identity;q=0.3',
+            'Authorization'=>'Bearer token',
+            'Content-Type'=>'application/json',
+            'User-Agent'=>'Ruby'
+          }).
+        to_return(status: 404, body: "{}", headers: {})
+
+
+      expect{client.fedex_locations({zipcode: "90210",max_result: 5})}.to raise_error(
+        FedexRestClient::ApiError, "Fedex API Not Found")
+
+    end
+
+    it "should handle 500 503 errors" do
+      stub_request(:post, "https://apis-sandbox.fedex.com/location/v1/locations").
+        with(
+          body: "{\"locationsSummaryRequestControlParameters\":{\"distance\":{\"units\":\"MI\",\"value\":25},\"maxResults\":5},\"locationSearchCriterion\":\"ADDRESS\",\"location\":{\"address\":{\"city\":null,\"stateOrProvinceCode\":null,\"postalCode\":\"90210\",\"countryCode\":\"US\",\"residential\":false}},\"multipleMatchesAction\":\"RETURN_ALL\",\"sort\":{\"criteria\":\"DISTANCE\",\"order\":\"ASCENDING\"},\"sameState\":false,\"sameCountry\":true,\"locationTypes\":[\"FEDEX_AUTHORIZED_SHIP_CENTER\"],\"includeHoliday\":true}",
+          headers: {
+            'Accept'=>'application/json',
+            'Accept-Encoding'=>'gzip;q=1.0,deflate;q=0.6,identity;q=0.3',
+            'Authorization'=>'Bearer token',
+            'Content-Type'=>'application/json',
+            'User-Agent'=>'Ruby'
+          }).
+        to_return(status: 500, body: "{}", headers: {})
+
+
+      expect{client.fedex_locations({zipcode: "90210",max_result: 5})}.to raise_error(
+        FedexRestClient::ConnectionError, "Fedex Service Failure")
+
+      stub_request(:post, "https://apis-sandbox.fedex.com/location/v1/locations").
+        with(
+          body: "{\"locationsSummaryRequestControlParameters\":{\"distance\":{\"units\":\"MI\",\"value\":25},\"maxResults\":5},\"locationSearchCriterion\":\"ADDRESS\",\"location\":{\"address\":{\"city\":null,\"stateOrProvinceCode\":null,\"postalCode\":\"90210\",\"countryCode\":\"US\",\"residential\":false}},\"multipleMatchesAction\":\"RETURN_ALL\",\"sort\":{\"criteria\":\"DISTANCE\",\"order\":\"ASCENDING\"},\"sameState\":false,\"sameCountry\":true,\"locationTypes\":[\"FEDEX_AUTHORIZED_SHIP_CENTER\"],\"includeHoliday\":true}",
+          headers: {
+            'Accept'=>'application/json',
+            'Accept-Encoding'=>'gzip;q=1.0,deflate;q=0.6,identity;q=0.3',
+            'Authorization'=>'Bearer token',
+            'Content-Type'=>'application/json',
+            'User-Agent'=>'Ruby'
+          }).
+        to_return(status: 503, body: "{}", headers: {})
+
+
+      expect{client.fedex_locations({zipcode: "90210",max_result: 5})}.to raise_error(
+        FedexRestClient::ConnectionError, "Fedex Service Unavailable")
+
+    end
+
+  end
+
+  describe "location search" do
+
+    before do
+      # token is valid no need to reauth
+      credential.token_expire_at = Time.now.to_i + 3600
+      credential.oauth_token = "token"
+    end
+
+    let :fake_result do
+      {
+        "transactionId" => "85c21719-c998-4933-a229-d483b5514b60",
+        "output" =>
+          {
+            "totalResults" => 75,
+            "resultsReturned" => 5,
+          }
+      }
+    end
+
+    it "should find locations" do
+
+      stub_request(:post, "https://apis-sandbox.fedex.com/location/v1/locations").
+        with(
+          body: "{\"locationsSummaryRequestControlParameters\":{\"distance\":{\"units\":\"MI\",\"value\":25},\"maxResults\":5},\"locationSearchCriterion\":\"ADDRESS\",\"location\":{\"address\":{\"city\":null,\"stateOrProvinceCode\":null,\"postalCode\":\"90210\",\"countryCode\":\"US\",\"residential\":false}},\"multipleMatchesAction\":\"RETURN_ALL\",\"sort\":{\"criteria\":\"DISTANCE\",\"order\":\"ASCENDING\"},\"sameState\":false,\"sameCountry\":true,\"locationTypes\":[\"FEDEX_AUTHORIZED_SHIP_CENTER\"],\"includeHoliday\":true}",
+          headers: {
+            'Accept'=>'application/json',
+            'Accept-Encoding'=>'gzip;q=1.0,deflate;q=0.6,identity;q=0.3',
+            'Authorization'=>'Bearer token',
+            'Content-Type'=>'application/json',
+            'User-Agent'=>'Ruby'
+          }).
+        to_return(status: 200, body: fake_result.to_json, headers: {})
+
+
+      result = client.fedex_locations({
+        zipcode: "90210",
+        max_result: 5
+      })
+
+      expect(result).to eq fake_result
+
+    end
+
+  end
 
 end
