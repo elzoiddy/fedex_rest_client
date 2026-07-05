@@ -75,49 +75,66 @@ module FedexRestClient
       {error_message: exp.message}
     end
 
-    # {"transactionId" => "....",
-    #  "output" =>
-    #   {"alerts" => [{"code" => "VIRTUAL.RESPONSE", "message" => "This is a Virtual Response.", "alertType" => "NOTE"}],
-    #    "resolvedAddresses" =>
-    #     [{"streetLinesToken" => ["4702 Great America Pkwy"],
-    #       "cityToken" => [{"changed" => false, "value" => "Santa Clara"}],
-    #       "stateOrProvinceCode" => "CA",
-    #       "stateOrProvinceCodeToken" => {"changed" => false, "value" => "CA"},
-    #       "postalCodeToken" => {"changed" => true, "value" => "95005"},
-    #       "parsedPostalCode" => {"base" => "95005", "addOn" => "3754", "deliveryPoint" => "99"},
-    #       "countryCode" => "US",
 
+    # work in progress, use at your own risk
+    # validate raw response if necessary
 
     def address_resolution(args)
       check_and_refresh_token
 
+      valid_address = false
+      corrected = false
+      new_address = {}
+
       address_validation_request = create_address_validation_request(args)
       response = fedex_post(address_valication_endpoint, header_with_bearer_token, address_validation_request)
 
-      output = {transaction_id: response['transactionId'], response: response}
+      resolved_address = response.dig("output", "resolvedAddresses")[0]
+      # need to have at least 1 resolved address or else it's invalid
+      if resolved_address != nil
+        resolved_address_attr = resolved_address["attributes"]
 
-      # TODO parse output for changed address
-      # resolved_addresses = response.dig("output", "resolvedAddresses")
-      # changed = false
-      #
-      # resolved_addresses.each do |ra|
-      #   changed = ra['stateOrProvinceCodeToken']['changed'] || ra['postalCodeToken']['changed']
-      #
-      #   new_address = {
-      #     address1: ra['streetLinesToken'][0],
-      #     address2: ra['streetLinesToken'][1].nil? ? nil : ra['streetLinesToken'][1],
-      #     city: ra['cityToken'][0]['value'],
-      #     state_abbr: ra['stateOrProvinceCode'],
-      #     zipcode: ra['parsedPostalCode']['base'] + '-' + ra['parsedPostalCode']['addOn'],
-      #     country_iso: ra['countryCode']
-      #   }
-      #
-      #   output[:changed] = changed
-      #   output[:address] = new_address
-      # end
+        # see if address validated correctly
 
+        # true is good or false is bad
+        dpv_check = resolved_address_attr["DPV"] == true
+        resolved_check = resolved_address_attr["Resolved"] == true
+        # false or missing is good
+        interpolated_check = resolved_address_attr["InterpolatedStreetAddress"] == nil ||
+          resolved_address_attr["InterpolatedStreetAddress"] == false
 
-      output
+        # validate state passed in is the same as the normalized one
+        state_check = resolved_address["stateOrProvinceCode"].downcase == args[:state_abbr].downcase
+
+        valid_address = dpv_check || resolved_check || state_check || interpolated_check
+
+        # see if any of these attributes are corrected
+        corrected = resolved_address["cityToken"][0]["changed"] ||
+          resolved_address["stateOrProvinceCodeToken"]["changed"] ||
+          resolved_address["postalCodeToken"]["changed"]
+
+        new_address = {
+          address1: resolved_address["streetLinesToken"][0],
+          city: resolved_address["cityToken"][0]["value"],
+          state_abbr: resolved_address["stateOrProvinceCode"],
+          zipcode: format_zipcode(resolved_address["parsedPostalCode"]["base"], resolved_address["parsedPostalCode"]["addOn"]),
+          country_iso: resolved_address["countryCode"]
+        }
+        if !resolved_address["streetLinesToken"][1].nil?
+          new_address[:address2] = streetLinesToken["streetLinesToken"][1]
+        end
+
+      end
+
+      output = {
+        transaction_id: response['transactionId'],
+        valid: valid_address,
+        corrected: corrected,
+        new_address: new_address,
+        response: response
+      }
+
+      return output
 
     end
 
@@ -158,6 +175,15 @@ module FedexRestClient
     end
 
     private
+
+    def format_zipcode(zipcode, addon)
+      result = "#{zipcode}"
+      if !addon.nil? && addon != ""
+        result += "-#{addon}"
+      end
+      result
+    end
+
 
     def check_and_refresh_token
       if need_token_refresh?
@@ -254,7 +280,7 @@ module FedexRestClient
           latitude: latitude,
           longitude: longitude
         }
-      }
+      end
 
 
       locations_request
@@ -482,35 +508,41 @@ module FedexRestClient
         end
       else
         # handle other errors
-        # look for specific codes here
+        logger.error(response.body)
         handle_specific_errors(response)
         # unable to handle the specific errors we are looking for
-        logger.error(response.body)
         raise ApiError.new("API error from fedex")
       end
 
     end
 
-    def handle_specific_errors(response)
-      result = JSON.parse(response.body) rescue {}
+    # turn specific error codes to specific exceptions, caller should catch if they care.
+    # for 429 they can retry later with some +jitter
+    # for anything else, they can choose to retry or give up and have some default behavior.
 
+    def handle_specific_errors(response)
+      # rate limited . caller needs to retry with jitter after Retry-After
       if response.code == 429
-        # rate limitted
-        begin
-          error_msg = result.dig("errors") || result.dig("message")
-        rescue Exception => e
-          logger.error(response.body.inspect)
-          error_msg = "Rate limit error."
+        # Retry-After: 3600
+        error_msg = "Rate limit error."
+        retry_after = response.headers['Retry-After']
+        if !retry_after.nil?
+          error_msg += " Retry after #{retry_after}"
         end
+
         raise RateLimitError.new(error_msg)
-      elsif response.code == 401
-        logger.error(response.body.inspect)
-        raise AuthError.new("Unauthorized")
+      # 400 errors that caller needs handle or check logs
+      elsif response.code == 400
+        raise ApiError.new("Fedex API Bad Request")
+      elsif response.code == 403
+        # maybe project isn't authorized to use this API
+        raise ApiError.new("Fedex API Forbidden")
+      elsif response.code == 404
+        raise ApiError.new("Fedex API Not Found")
+      # remote service errors
       elsif response.code == 500
-        logger.error(response.body.inspect)
         raise ConnectionError.new("Fedex Service Failure")
       elsif response.code == 503
-        logger.error(response.body.inspect)
         raise ConnectionError.new("Fedex Service Unavailable")
       end
 

@@ -8,7 +8,8 @@ Not totally feature complete. Feel free to fork it and implement your own reques
 
 ## Installation
 
-Probably better if you point at this repo or fork of this repo for your specific needs. 
+Probably better if you point at this repo or fork of this repo for your specific needs. I am still actively working on
+adding more APIs
 
 ```bash
 
@@ -106,6 +107,66 @@ The enum types are well defined in https://developer.fedex.com/wirc/browser/. No
 | residential_recipient     | boolean | is the to address a residential address, depend on service requested|
 | bill_third_party          | boolean | bill third party with their account number |
 | third_party_account_number| string  | 3rd party account number to bill this shipment to |
+
+### Fedex Location Search
+```
+credential = FedexRestClient::Credential.new("<YOUR API KEY>", "<YOUR API SECRET>", "<YOUR ACCOUNT NUMBER>")
+
+client = FedexRestClient::Client.new({ credential: credential})
+
+result = client.fedex_locations({
+  zipcode: "90210",
+  max_result: 5
+})
+```
+
+__parameters for location search__
+
+
+| name | type |description |
+|---------------------------|---------|-----------------------|
+| max_result                | integer | max result to return, default 10  | 
+| result_distance_unit      | string  | MI for miles , KM for kilimeters  |
+| result_distance_value     | integer | return this results swith in this radius |
+| postal_code               | string  | search by zipcode |
+| city                      | string  | search by city |
+| state                     | string  | search by state |
+| country_iso               | string  | country code, default to US  |
+| latitude                  | string  | OPTIONAL: latitude as the center of the search circle |
+| longitude                 | string  | OPTIONAL: longitude as the center of the search circle |
+| location_types            | enum    | default to FEDEX_AUTHORIZED_SHIP_CENTER | 
+
+Result is the list of fedex locations with their meta data.  This is what fedex provides, 
+you can transform it to your needs. 
+
+All enums defined at https://developer.fedex.com/wirc/browser/#operation/Find%20Location
+
+### Address Validation (Work in progress)
+
+```
+# correct address
+address = {
+  address1: "4701 Great America Pkwy",
+  city: "Santa Clara",
+  state_abbr: "CA",
+  zipcode: "95054",
+  country_iso: "US"
+}
+
+result = client.address_resolution(address)
+
+yields
+result = {
+      transaction_id: "...",    # transaction for this query
+      valid: true|false,        # address validated according to the 4 criterias in the API doc
+      corrected: true| false ,  # address was corrected
+      new_address: new_address, # new address Fedex corrected to if any
+      response: response        # raw response from fedex with other info. (WIP)
+    }
+
+```
+
+
 
 
 ## Contributing
